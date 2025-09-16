@@ -260,15 +260,22 @@
         align-items: center;
         z-index: 1000;
         animation: fadeIn 0.3s ease-out forwards;
+        flex-direction: column; /* Pour aligner les éléments en colonne */
     }
 
-    #video-player {
+    #video-player-frame {
         width: 90%;
         max-width: 1000px;
         height: 70%;
         max-height: 600px;
         border-radius: 10px;
         box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    }
+
+    #video-player-frame iframe {
+        width: 100%;
+        height: 100%;
+        border-radius: 10px;
     }
 
     #close-btn {
@@ -284,6 +291,31 @@
 
     #close-btn:hover {
         transform: rotate(90deg) scale(1.1);
+    }
+    
+    #suggested-videos-container {
+        width: 90%;
+        max-width: 1000px;
+        margin-top: 20px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    #suggested-videos-container h3 {
+        margin-bottom: 10px;
+    }
+
+    #suggested-videos-list {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 10px;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    #suggested-videos-list::-webkit-scrollbar {
+        display: none;
     }
 
     .bottom-nav {
@@ -340,14 +372,21 @@
         <button onclick="loadCategory('Gag')">Gag</button>
         <button onclick="loadCategory('Films')">Films Congolais</button>
         <button onclick="loadCategory('Musique')">Musique</button>
+        <button onclick="loadMyList()">Ma liste</button>
     </nav>
 
     <section id="content-rows" aria-live="polite"></section>
 </main>
 
 <div id="video-player-container" role="dialog" aria-modal="true" aria-labelledby="video-title">
-    <iframe id="video-player" width="100%" height="auto" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen title="Lecteur vidéo"></iframe>
+    <div id="video-player-frame">
+        <iframe id="video-player" width="100%" height="auto" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen title="Lecteur vidéo"></iframe>
+    </div>
     <span id="close-btn" role="button" tabindex="0" aria-label="Fermer la lecture vidéo">✖</span>
+    <div id="suggested-videos-container">
+        <h3>Vidéos suggérées</h3>
+        <div id="suggested-videos-list" class="videos-list"></div>
+    </div>
 </div>
 
 <nav class="bottom-nav" role="navigation" aria-label="Navigation inférieure">
@@ -379,6 +418,7 @@
     const closeBtn = document.getElementById('close-btn');
     const heroCarousel = document.querySelector('.hero-carousel');
     const heroSection = document.querySelector('.hero-section');
+    const suggestedVideosList = document.getElementById('suggested-videos-list');
 
     const playlists = {
         'Tendance': 'PL_0_czPdB1wTMgJ6mr3mtUPSoTeTjUBdg',
@@ -387,29 +427,34 @@
         'Musique': 'PL_0_czPdB1wRQvWg-2NFZebqSGbcCtmvW',
     };
 
-    const allVideos = {};
+    let allVideosCache = {};
     let carouselVideos = [];
 
-    async function fetchVideos(playlistId) {
-        if (allVideos[playlistId]) return allVideos[playlistId];
+    async function fetchAllVideos() {
+        if (Object.keys(allVideosCache).length > 0) return allVideosCache;
+
+        contentRowsContainer.innerHTML = '<div style="text-align: center; margin-top: 50px;"><i class="fas fa-spinner fa-spin"></i> Chargement des vidéos...</div>';
+        
+        const allPlaylists = Object.keys(playlists);
         try {
-            const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=20&playlistId=${playlistId}&key=${API_KEY}`);
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(`Erreur API (${res.status}): ${errData.error.message || res.statusText}`);
+            for (const category of allPlaylists) {
+                const playlistId = playlists[category];
+                const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${playlistId}&key=${API_KEY}`);
+                if (!res.ok) throw new Error(`Erreur API (${res.status})`);
+                const data = await res.json();
+                allVideosCache[category] = data.items.filter(item => item.snippet && item.snippet.thumbnails);
             }
-            const data = await res.json();
-            const videos = data.items.filter(item => item.snippet && item.snippet.thumbnails && item.snippet.thumbnails.high && item.snippet.title !== "Private video" && item.snippet.title !== "Deleted video");
-            allVideos[playlistId] = videos;
-            return videos;
+            contentRowsContainer.innerHTML = '';
+            return allVideosCache;
         } catch (error) {
             console.error("Erreur lors de la récupération des vidéos:", error);
-            alert("Impossible de charger les vidéos. Veuillez vérifier votre clé API ou connexion. Détails: " + error.message);
-            return [];
+            contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Erreur lors du chargement des vidéos. Veuillez vérifier votre clé API ou connexion.</p>';
+            return {};
         }
     }
 
     function renderVideos(videos, title, isHome = false) {
+        if (videos.length === 0) return;
         const rowSection = document.createElement('section');
         rowSection.className = 'content-row ' + (isHome ? 'home' : 'category');
         rowSection.innerHTML = `<h2>${title}</h2><div class="videos-list"></div>`;
@@ -419,23 +464,37 @@
             const snippet = item.snippet;
             const videoId = snippet.resourceId.videoId;
             const card = document.createElement('div');
-
-            if (isHome) {
-                card.className = 'video-card home-video-card';
-            } else {
-                card.className = 'video-card video-card-vertical';
-            }
-
+            card.className = `video-card ${isHome ? 'home-video-card' : 'video-card-vertical'}`;
             card.innerHTML = `
                 <img src="${snippet.thumbnails.high.url}" alt="${snippet.title}" class="video-thumbnail" loading="lazy" />
                 <div class="video-title">${snippet.title}</div>
             `;
             
-            card.onclick = () => {
-                videoPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-                videoPlayerContainer.style.display = 'flex';
-                videoPlayer.focus();
-            };
+            card.onclick = () => playVideo(videoId, item.id);
+            videoList.appendChild(card);
+        });
+
+        contentRowsContainer.appendChild(rowSection);
+    }
+
+    function renderMyList(videos) {
+        if (videos.length === 0) {
+            contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Votre liste est vide. Ajoutez des vidéos pour les retrouver ici !</p>';
+            return;
+        }
+        const rowSection = document.createElement('section');
+        rowSection.className = 'content-row category';
+        rowSection.innerHTML = `<h2>Ma liste</h2><div class="videos-list"></div>`;
+        const videoList = rowSection.querySelector('.videos-list');
+
+        videos.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'video-card video-card-vertical';
+            card.innerHTML = `
+                <img src="${item.thumbnailUrl}" alt="${item.videoTitle}" class="video-thumbnail" loading="lazy" />
+                <div class="video-title">${item.videoTitle}</div>
+            `;
+            card.onclick = () => playVideo(item.videoId);
             videoList.appendChild(card);
         });
 
@@ -443,12 +502,34 @@
     }
 
     async function loadHome() {
+        const videosByCategories = await fetchAllVideos();
+        if (Object.keys(videosByCategories).length === 0) return;
         contentRowsContainer.innerHTML = '';
-        const allCategories = Object.keys(playlists);
-        for (const category of allCategories) {
-            const videos = await fetchVideos(playlists[category]);
-            const limitedVideos = videos.slice(0, 5);
-            if (limitedVideos.length > 0) renderVideos(limitedVideos, category, true);
+
+        // Catégories de base
+        const categoriesToShow = ['Tendance', 'Gag', 'Films', 'Musique'];
+        for (const category of categoriesToShow) {
+            const videos = videosByCategories[category];
+            if (videos && videos.length > 0) {
+                renderVideos(videos.slice(0, 5), category, true); 
+            }
+        }
+        
+        // Récemment Ajoutés (filtré)
+        const allVideosArray = [].concat(...Object.values(videosByCategories));
+        const sortedVideos = allVideosArray.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+        if (sortedVideos.length > 0) {
+            renderVideos(sortedVideos.slice(0, 5), "Récemment Ajoutés", true);
+        }
+        
+        // Le meilleur de la comédie (filtré par mot-clé)
+        const comedyVideos = allVideosArray.filter(video => 
+            video.snippet.title.toLowerCase().includes('gag') || 
+            video.snippet.title.toLowerCase().includes('comédie') || 
+            video.snippet.description.toLowerCase().includes('rire')
+        );
+        if (comedyVideos.length > 0) {
+            renderVideos(comedyVideos.slice(0, 5), "Le meilleur de la comédie", true);
         }
     }
 
@@ -460,15 +541,45 @@
         contentRowsContainer.innerHTML = '';
         if (categoryName === 'Accueil') {
             await loadHome();
-        } else if (playlists[categoryName]) {
-            const videos = await fetchVideos(playlists[categoryName]);
-            renderVideos(videos, categoryName);
+        } else {
+            const videosByCategories = await fetchAllVideos();
+            const videos = videosByCategories[categoryName];
+            if (videos && videos.length > 0) {
+                renderVideos(videos, categoryName);
+            } else {
+                contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Aucune vidéo trouvée pour cette catégorie.</p>';
+            }
         }
     }
 
+    function loadMyList() {
+        categoriesNavButtons.forEach(button => button.classList.remove('active'));
+        const myListButton = document.querySelector('.categories-nav button[onclick="loadMyList()"]');
+        if (myListButton) myListButton.classList.add('active');
+        contentRowsContainer.innerHTML = '';
+        const myList = JSON.parse(localStorage.getItem('myList')) || [];
+        renderMyList(myList);
+    }
+    
+    function addToMyList(videoId, videoTitle, thumbnailUrl) {
+        let myList = JSON.parse(localStorage.getItem('myList')) || [];
+        const existingVideoIndex = myList.findIndex(item => item.videoId === videoId);
+
+        if (existingVideoIndex > -1) {
+            myList.splice(existingVideoIndex, 1);
+            alert(`"${videoTitle}" a été retiré de votre liste.`);
+        } else {
+            myList.push({ videoId, videoTitle, thumbnailUrl });
+            alert(`"${videoTitle}" a été ajouté à votre liste !`);
+        }
+        localStorage.setItem('myList', JSON.stringify(myList));
+        console.log("Ma liste actuelle:", myList);
+    }
+
     async function setupHeroCarousel() {
-        const tendanceVideos = await fetchVideos(playlists['Tendance']);
-        carouselVideos = tendanceVideos.slice(0, 5);
+        const videosByCategories = await fetchAllVideos();
+        const tendanceVideos = videosByCategories['Tendance'];
+        carouselVideos = tendanceVideos ? tendanceVideos.slice(0, 5) : [];
         heroCarousel.innerHTML = '';
         if (carouselVideos.length === 0) {
             heroSection.style.display = 'none';
@@ -488,7 +599,7 @@
                     <h2>${snippet.title}</h2>
                     <div class="hero-buttons">
                         <button class="play-btn" onclick="playVideo('${videoId}')"><i class="fas fa-play"></i> Lecture</button>
-                        <button class="add-btn" title="Ajouter à ma liste"><i class="fas fa-plus"></i> Ma liste</button>
+                        <button class="add-btn" onclick="addToMyList('${videoId}', '${snippet.title}', '${snippet.thumbnails.high.url}')" title="Ajouter à ma liste"><i class="fas fa-plus"></i> Ma liste</button>
                     </div>
                 </div>
             `;
@@ -511,10 +622,47 @@
         window.addEventListener('resize', updateCarousel);
     }
 
-    function playVideo(videoId) {
+    async function playVideo(videoId) {
         videoPlayer.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
         videoPlayerContainer.style.display = 'flex';
         videoPlayer.focus();
+        
+        // Trouver la catégorie de la vidéo actuelle pour les suggestions
+        const videosByCategories = await fetchAllVideos();
+        let currentPlaylistVideos = [];
+        for (const category in videosByCategories) {
+            const videos = videosByCategories[category];
+            if (videos.some(v => v.snippet.resourceId.videoId === videoId)) {
+                currentPlaylistVideos = videos;
+                break;
+            }
+        }
+        
+        const suggestedVideos = currentPlaylistVideos.filter(v => v.snippet.resourceId.videoId !== videoId);
+        renderSuggestedVideos(suggestedVideos.slice(0, 5));
+    }
+
+    function renderSuggestedVideos(videos) {
+        suggestedVideosList.innerHTML = '';
+        if (videos.length === 0) {
+            suggestedVideosList.innerHTML = '<p>Pas de suggestions pour le moment.</p>';
+            return;
+        }
+
+        videos.forEach(item => {
+            const snippet = item.snippet;
+            const videoId = snippet.resourceId.videoId;
+            const card = document.createElement('div');
+            card.className = 'video-card home-video-card';
+            card.style.width = '150px';
+            card.style.height = 'auto';
+            card.innerHTML = `
+                <img src="${snippet.thumbnails.high.url}" alt="${snippet.title}" class="video-thumbnail" loading="lazy" />
+                <div class="video-title">${snippet.title}</div>
+            `;
+            card.onclick = () => playVideo(videoId);
+            suggestedVideosList.appendChild(card);
+        });
     }
 
     closeBtn.onclick = () => {
@@ -528,9 +676,9 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', () => {
-        setupHeroCarousel();
-        loadCategory('Accueil');
+    document.addEventListener('DOMContentLoaded', async () => {
+        await setupHeroCarousel();
+        await loadHome();
     });
 </script>
 

@@ -24,6 +24,7 @@
         margin: 0;
         padding: 0;
         line-height: 1.6;
+        padding-bottom: 70px; /* Ajout pour la nav du bas */
     }
 
     .header {
@@ -46,6 +47,11 @@
     .header .user-profile {
         font-size: 1.5em;
         color: var(--text-light);
+    }
+    
+    .header .user-profile i {
+        cursor: pointer;
+        margin-left: 15px;
     }
 
     .categories-nav {
@@ -227,7 +233,7 @@
         transition: transform 0.3s ease, box-shadow 0.3s ease;
         cursor: pointer;
         position: relative;
-        padding-bottom: 10px; /* Ajout d'espace pour le titre */
+        padding-bottom: 10px;
     }
 
     .video-card img.video-thumbnail {
@@ -260,7 +266,7 @@
         align-items: center;
         z-index: 1000;
         animation: fadeIn 0.3s ease-out forwards;
-        flex-direction: column; /* Pour aligner les éléments en colonne */
+        flex-direction: column;
     }
 
     #video-player-frame {
@@ -359,6 +365,13 @@
         <i class="fas fa-search" role="button" tabindex="0" aria-label="Recherche"></i>
         <i class="fas fa-user-circle" role="button" tabindex="0" aria-label="Profil utilisateur"></i>
     </div>
+    <div id="search-container" style="display: none; position: absolute; top: 100%; left: 0; width: 100%; padding: 10px 20px; background-color: var(--secondary-dark); border-bottom: 1px solid #333; box-sizing: border-box;">
+        <input type="text" id="search-input" placeholder="Rechercher des films, séries, musiques..." style="width: 100%; padding: 10px; border: none; border-radius: 5px; background-color: var(--primary-dark); color: var(--text-light);" />
+    </div>
+    <div id="profile-menu" style="display: none; position: absolute; top: 100%; right: 20px; background-color: var(--secondary-dark); border-radius: 5px; box-shadow: 0 4px 10px var(--shadow-medium); z-index: 1001;">
+        <a href="#" class="profile-item" style="display: block; padding: 10px 20px; text-decoration: none; color: var(--text-light); border-bottom: 1px solid #333;">Gérer le profil</a>
+        <a href="#" class="profile-item" style="display: block; padding: 10px 20px; text-decoration: none; color: var(--text-light);">Se déconnecter</a>
+    </div>
 </header>
 
 <main>
@@ -390,19 +403,19 @@
 </div>
 
 <nav class="bottom-nav" role="navigation" aria-label="Navigation inférieure">
-    <a href="#" class="nav-item active" aria-current="page">
+    <a href="#" class="nav-item active" id="home-nav" aria-current="page">
         <i class="fas fa-home"></i>
         <span>Accueil</span>
     </a>
-    <a href="#" class="nav-item" tabindex="0">
+    <a href="#" class="nav-item" id="ranking-nav" tabindex="0">
         <i class="fas fa-trophy"></i>
         <span>Classement</span>
     </a>
-    <a href="#" class="nav-item" tabindex="0">
+    <a href="#" class="nav-item" id="news-nav" tabindex="0">
         <i class="fas fa-bell"></i>
         <span>Nouveautés</span>
     </a>
-    <a href="#" class="nav-item" tabindex="0">
+    <a href="#" class="nav-item" id="download-nav" tabindex="0">
         <i class="fas fa-download"></i>
         <span>Télécharger</span>
     </a>
@@ -419,6 +432,20 @@
     const heroCarousel = document.querySelector('.hero-carousel');
     const heroSection = document.querySelector('.hero-section');
     const suggestedVideosList = document.getElementById('suggested-videos-list');
+    
+    // Déclaration des nouveaux éléments
+    const searchIcon = document.querySelector('.fas.fa-search');
+    const userProfileIcon = document.querySelector('.fas.fa-user-circle');
+    const searchContainer = document.getElementById('search-container');
+    const searchInput = document.getElementById('search-input');
+    const profileMenu = document.getElementById('profile-menu');
+    
+    // Déclaration des éléments de la nav inférieure
+    const bottomNavItems = document.querySelectorAll('.bottom-nav .nav-item');
+    const homeNavBtn = document.getElementById('home-nav');
+    const rankingNavBtn = document.getElementById('ranking-nav');
+    const newsNavBtn = document.getElementById('news-nav');
+    const downloadNavBtn = document.getElementById('download-nav');
 
     const playlists = {
         'Tendance': 'PL_0_czPdB1wTMgJ6mr3mtUPSoTeTjUBdg',
@@ -430,6 +457,41 @@
     let allVideosCache = {};
     let carouselVideos = [];
 
+    // Fonction pour récupérer toutes les vidéos d'une playlist en gérant la pagination
+    async function fetchPlaylistItemsWithPagination(playlistId) {
+        let allItems = [];
+        let nextPageToken = null;
+
+        try {
+            do {
+                const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${playlistId}&key=${API_KEY}&pageToken=${nextPageToken || ''}`;
+                const res = await fetch(url);
+                
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(`Erreur API (${res.status}): ${errorData.error.message}`);
+                }
+                
+                const data = await res.json();
+                
+                if (data.items) {
+                    allItems = allItems.concat(data.items.filter(item => item.snippet && item.snippet.thumbnails));
+                }
+                
+                nextPageToken = data.nextPageToken;
+                
+            } while (nextPageToken);
+
+            return allItems;
+
+        } catch (error) {
+            console.error("Erreur lors de la récupération des vidéos:", error);
+            contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Erreur lors du chargement des vidéos. Veuillez vérifier votre clé API ou connexion.</p>';
+            return [];
+        }
+    }
+
+    // Fonction principale modifiée pour utiliser la nouvelle fonction de pagination
     async function fetchAllVideos() {
         if (Object.keys(allVideosCache).length > 0) return allVideosCache;
 
@@ -439,10 +501,7 @@
         try {
             for (const category of allPlaylists) {
                 const playlistId = playlists[category];
-                const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${playlistId}&key=${API_KEY}`);
-                if (!res.ok) throw new Error(`Erreur API (${res.status})`);
-                const data = await res.json();
-                allVideosCache[category] = data.items.filter(item => item.snippet && item.snippet.thumbnails);
+                allVideosCache[category] = await fetchPlaylistItemsWithPagination(playlistId);
             }
             contentRowsContainer.innerHTML = '';
             return allVideosCache;
@@ -506,7 +565,6 @@
         if (Object.keys(videosByCategories).length === 0) return;
         contentRowsContainer.innerHTML = '';
 
-        // Catégories de base
         const categoriesToShow = ['Tendance', 'Gag', 'Films', 'Musique'];
         for (const category of categoriesToShow) {
             const videos = videosByCategories[category];
@@ -515,14 +573,12 @@
             }
         }
         
-        // Récemment Ajoutés (filtré)
         const allVideosArray = [].concat(...Object.values(videosByCategories));
         const sortedVideos = allVideosArray.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
         if (sortedVideos.length > 0) {
             renderVideos(sortedVideos.slice(0, 5), "Récemment Ajoutés", true);
         }
         
-        // Le meilleur de la comédie (filtré par mot-clé)
         const comedyVideos = allVideosArray.filter(video => 
             video.snippet.title.toLowerCase().includes('gag') || 
             video.snippet.title.toLowerCase().includes('comédie') || 
@@ -627,7 +683,6 @@
         videoPlayerContainer.style.display = 'flex';
         videoPlayer.focus();
         
-        // Trouver la catégorie de la vidéo actuelle pour les suggestions
         const videosByCategories = await fetchAllVideos();
         let currentPlaylistVideos = [];
         for (const category in videosByCategories) {
@@ -675,6 +730,94 @@
             closeBtn.click();
         }
     });
+
+    // Événements pour les nouveaux boutons
+    searchIcon.onclick = () => {
+        searchContainer.style.display = searchContainer.style.display === 'none' ? 'block' : 'none';
+        searchInput.focus();
+    };
+
+    searchInput.addEventListener('input', async (e) => {
+        const query = e.target.value.toLowerCase();
+        const videosByCategories = await fetchAllVideos();
+        const allVideosArray = [].concat(...Object.values(videosByCategories));
+        
+        if (query.length > 2) {
+            const searchResults = allVideosArray.filter(video => 
+                video.snippet.title.toLowerCase().includes(query) ||
+                video.snippet.description.toLowerCase().includes(query)
+            );
+            contentRowsContainer.innerHTML = '';
+            if (searchResults.length > 0) {
+                renderVideos(searchResults, `Résultats pour "${query}"`);
+            } else {
+                contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Aucun résultat trouvé.</p>';
+            }
+        } else {
+            // Revenir à l'accueil si le champ est vide
+            loadHome();
+        }
+    });
+
+    userProfileIcon.onclick = (e) => {
+        e.stopPropagation();
+        profileMenu.style.display = profileMenu.style.display === 'none' ? 'block' : 'none';
+    };
+
+    document.addEventListener('click', (e) => {
+        if (!profileMenu.contains(e.target) && e.target !== userProfileIcon) {
+            profileMenu.style.display = 'none';
+        }
+    });
+
+    // Fonctions de la barre de navigation inférieure
+    function resetActiveNavAndCategories() {
+        bottomNavItems.forEach(item => item.classList.remove('active'));
+        categoriesNavButtons.forEach(btn => btn.classList.remove('active'));
+    }
+
+    homeNavBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        resetActiveNavAndCategories();
+        homeNavBtn.classList.add('active');
+        // Synchroniser avec le bouton "Accueil" du haut
+        document.querySelector('.categories-nav button').classList.add('active');
+        loadHome();
+    });
+
+    rankingNavBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        resetActiveNavAndCategories();
+        rankingNavBtn.classList.add('active');
+        loadCategory('Tendance');
+    });
+
+    newsNavBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        resetActiveNavAndCategories();
+        newsNavBtn.classList.add('active');
+        loadNewReleases();
+    });
+
+    downloadNavBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        resetActiveNavAndCategories();
+        downloadNavBtn.classList.add('active');
+        contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Bientôt disponible : Téléchargez l\'application pour regarder vos films hors ligne !</p>';
+    });
+
+    async function loadNewReleases() {
+        const videosByCategories = await fetchAllVideos();
+        const allVideosArray = [].concat(...Object.values(videosByCategories));
+        const sortedVideos = allVideosArray.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
+        
+        contentRowsContainer.innerHTML = '';
+        if (sortedVideos.length > 0) {
+            renderVideos(sortedVideos, "Les dernières nouveautés", false);
+        } else {
+            contentRowsContainer.innerHTML = '<p style="text-align: center; margin-top: 50px;">Aucune nouvelle vidéo pour le moment.</p>';
+        }
+    }
 
     document.addEventListener('DOMContentLoaded', async () => {
         await setupHeroCarousel();
